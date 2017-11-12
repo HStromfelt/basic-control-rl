@@ -39,11 +39,11 @@ Tensor = FloatTensor
 BATCH_SIZE = 32 * 300
 GAMMA = 0.8
 EPS_START = 0.9
-EPS_END = 0.
+EPS_END = 0.05
 EPS_DECAY = 1000
 explorer = Explorer(EPS_START, EPS_END, EPS_DECAY)
 
-NUM_ATTEMPTS = 80000
+NUM_ATTEMPTS = 120000
 ##################################################
 # Model and Environment
 #NUM_TIME_STEPS = 6 * 24  # 10 min intervals in a day

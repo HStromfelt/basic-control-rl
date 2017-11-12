@@ -138,7 +138,7 @@ class Env(object):
 			if self.speed == 0:
 				self.accum_energy_err += 1
 			else:
-				self.accum_energy_err += self.speed
+				self.accum_energy_err += 10*self.speed
 		else:
 			# outside peak time examples
 			#av_exp_speed = cls.calc_req_speed(state['time'], state['q_so_far'])
