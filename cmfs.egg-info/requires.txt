@@ -1,0 +1,9 @@
+scipy
+sklearn
+configparser
+simplejson
+cson
+h5py
+hdf5
+tqdm
+six
