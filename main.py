@@ -25,11 +25,11 @@ import random
 import numpy as np
 
 if torch.cuda.is_available():
-	torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
 # if gpu is to be used
 use_cuda = torch.cuda.is_available()
 if use_cuda:
-	torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
 ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
@@ -39,8 +39,8 @@ Tensor = FloatTensor
 BATCH_SIZE = 32 * 300
 GAMMA = 0.8
 EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 1000
+EPS_END = 0.
+EPS_DECAY = 2000
 explorer = Explorer(EPS_START, EPS_END, EPS_DECAY)
 
 NUM_ATTEMPTS = 120000
@@ -59,16 +59,20 @@ env = Env(STATE_SPACE, ACTION_SPACE)
 model = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
 target = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
 #target = None
+#model = Linear_Net(STATE_SPACE, ACTION_SPACE)
+#target = Linear_Net(STATE_SPACE, ACTION_SPACE)
 
 
 if use_cuda:
-	model.cuda()
-	target.cuda()
+    model.cuda()
+    target.cuda()
 ##################################################
 # Optimiser and Replay
 #optimizer = optim.SGD(model.parameters(), lr=0.01)
 optimizer = optim.SGD(model.parameters(), lr=0.1)
-memory = ReplayMemory(BATCH_SIZE * 100)
+full_memory = ReplayMemory(BATCH_SIZE * 100)
+micro_memory = ReplayMemory(BATCH_SIZE * 100)
+macro_memory = ReplayMemory(BATCH_SIZE* 100)
 ##################################################
 # Data Storer/Manager
 dm = DataManager('./data.h5', mode='swmr')
@@ -87,97 +91,144 @@ dm.start_swmr()
 # Training
 traceback_error = True
 for j in range(NUM_ATTEMPTS):
-	# Initialize the environment and state
-	net_loss = 0
-	net_reward = 0
-	env.reset()
-	old = 0
-	state = env.get_tensor_state(reset=True)
-	for t in range(NUM_TIME_STEPS):
-		# Select and perform an action
-		action = select_action(
-				model, state, ACTION_SPACE, explorer.calc_eps_threshold(j))
-		reward = env.step_test(action[0, 0])
-		reward = Tensor([reward])
-		net_reward += reward[0]
+    # Initialize the environment and state
+    net_loss = 0
+    net_reward = 0
+    env.reset()
+    old = 0
+    state = env.get_tensor_state(reset=True)
+    for t in range(NUM_TIME_STEPS):
+        # Select and perform an action
+        action = select_action(
+                model, state, ACTION_SPACE, explorer.calc_eps_threshold(j))
+        reward = env.step_test(action[0, 0])
+        reward = Tensor([reward])
+        net_reward += reward[0]
 
-		# Observe new state
-		next_state = env.get_tensor_state(state)
-		# Store the transition in memory
-		memory.push(state, action, next_state, reward)
-
-		# Move to the next state
-		state = next_state
-
-		# Perform one step of the optimization (on the target network)
-		#train_target = True if t % 100 == 0 else False
-		#loss = optimize_model(optimizer, memory, model, BATCH_SIZE, GAMMA,
-		#		target=target, train_target=train_target)
-		#loss = 0 if loss is None else loss.data[0]
-		#net_loss += loss
-		#if done:
-		#    break
-		#print(
-		#		'Loss: {:.2f} \t Reward: {:.2f} \t State: {}'.format(
-		#			loss, reward[0], env.print_env_state())
-		#		)
-		print('peak: {} \t State: {}'.format(
-			env.is_peak, env.print_env_state()))
-
-		# VIZZZ
-		# resize data
-		new_shape = (t+1,)
-		rewards_dataset.resize(new_shape)
-		speeds_dataset.resize(new_shape)
-		quota_dataset.resize(new_shape)
-		#
-		# add data
-		rewards_dataset[t] = reward[0]
-		speeds_dataset[t] = env.speed
-		if env.q_so_far < old:
-			import pdb
-			pdb.set_trace()
-		quota_dataset[t] = 0 #env.q_so_far
-		old = env.q_so_far
-		#
-		# flush all
-		rewards_dataset.flush()
-		speeds_dataset.flush()
-		quota_dataset.flush()
-
-	# trace back reward for last episode
-	if traceback_error:
-		final_reward = reward[0]
-		for i in range(NUM_TIME_STEPS):
-			transition = memory.memory[memory.position - i - 1 % memory.capacity]
-			memory.memory[memory.position - i - 1 % memory.capacity] = list(transition)
-			memory.memory[memory.position - i - 1 % memory.capacity][3] += \
-					final_reward*(1-i/NUM_TIME_STEPS)
-			memory.memory[memory.position - i - 1 % memory.capacity] = \
-					ReplayMemory.Transition(
-							*memory.memory[memory.position - i - 1 % memory.capacity]
-							)
-
-	train_target = True if j % 5 == 0 else False
-	loss = optimize_model(optimizer, memory, model, BATCH_SIZE, GAMMA,
-			target=target, train_target=train_target)
-	loss = 0 if loss is None else loss.data[0]
-	net_loss += loss
+        # Observe new state
+        next_state = env.get_tensor_state(state)
+        # Store the transition in memory
+        # Full memory, stores full context of rewards
+        full_memory.push(state, action, next_state, reward)
+        # micro memory, stores only the state by state deterministic rewards
+        micro_memory.push(state, action, next_state, reward)
+        # macro memory, only stores the final state and backprop reward
+        if t == (NUM_TIME_STEPS - 1):  # i.e. final reward
+            macro_memory.push(state, action, next_state, reward)
+        else:
+            macro_memory.push(state, action, next_state, Tensor([0.]))
 
 
-	# Viz
-	losses_dataset.resize((j+1,))
-	losses_dataset[j] = net_loss
-	losses_dataset.flush()
+        # Move to the next state
+        state = next_state
 
-	overall_reward_dataset.resize((j+1,))
-	overall_reward_dataset[j] = net_reward
-	quota_err_dataset.resize((j+1,))
-	quota_err_dataset[j] = 1-env.q_so_far
-	overall_reward_dataset.flush()
-	quota_err_dataset.flush()
+        # Perform one step of the optimization (on the target network)
+        #train_target = False # True if t % 100 == 0 else False
+        #loss = optimize_model(optimizer, memory, model, BATCH_SIZE, GAMMA,
+       # 		target=target, train_target=train_target, test=True, freeze_macro=True)
+        #loss = 0 if loss is None else loss.data[0]
+        #net_loss += loss
+        #if done:
+        #    break
+        #print(
+        #		'Loss: {:.2f} \t Reward: {:.2f} \t State: {}'.format(
+        #			loss, reward[0], env.print_env_state())
+        #		)
+        print('peak: {} \t Reward: {:.2f} \t State: {}'.format(
+            env.is_peak, reward[0], env.print_env_state()))
 
-	print('done - day: {} step: {} net_loss: {}'.format(j, t, net_loss))
+        # VIZZZ
+        # resize data
+        new_shape = (t+1,)
+        rewards_dataset.resize(new_shape)
+        speeds_dataset.resize(new_shape)
+        quota_dataset.resize(new_shape)
+        #
+        # add data
+        rewards_dataset[t] = reward[0]
+        speeds_dataset[t] = env.speed
+        if env.q_so_far < old:
+            import pdb
+            pdb.set_trace()
+        quota_dataset[t] = 0 #env.q_so_far
+        old = env.q_so_far
+        #
+        # flush all
+        rewards_dataset.flush()
+        speeds_dataset.flush()
+        quota_dataset.flush()
+
+    # trace back reward for last episode
+    if traceback_error:
+        final_reward = reward[0]
+        for i in range(NUM_TIME_STEPS):
+            # Full memory
+            transition = full_memory.memory[full_memory.position - i - 1 % full_memory.capacity]
+            full_memory.memory[full_memory.position - i - 1 % full_memory.capacity] = list(transition)
+            full_memory.memory[full_memory.position - i - 1 % full_memory.capacity][3] += \
+                    final_reward*(1-i/NUM_TIME_STEPS)
+            full_memory.memory[full_memory.position - i - 1 % full_memory.capacity] = \
+                    ReplayMemory.Transition(
+                            *full_memory.memory[full_memory.position - i - 1 % full_memory.capacity]
+                            )
+
+            # Macro memory
+            transition = macro_memory.memory[macro_memory.position - i - 1 % macro_memory.capacity]
+            macro_memory.memory[macro_memory.position - i - 1 % macro_memory.capacity] = list(transition)
+            macro_memory.memory[macro_memory.position - i - 1 % macro_memory.capacity][3] += \
+                    final_reward*(1-i/NUM_TIME_STEPS)
+            macro_memory.memory[macro_memory.position - i - 1 % macro_memory.capacity] = \
+                    ReplayMemory.Transition(
+                            *macro_memory.memory[macro_memory.position - i - 1 % macro_memory.capacity]
+                            )
+
+        # Micro Memory - remove final state reward from final state
+        # TODO: Note this loses the micro reward on final state, not sure if matters
+        transition = micro_memory.memory[micro_memory.position - 0 - 1 % micro_memory.capacity]
+        micro_memory.memory[micro_memory.position - 0 - 1 % micro_memory.capacity] = list(transition)
+        micro_memory.memory[micro_memory.position - 0 - 1 % micro_memory.capacity][3] -= final_reward
+        micro_memory.memory[micro_memory.position - 0 - 1 % micro_memory.capacity] = \
+                    ReplayMemory.Transition(
+                            *micro_memory.memory[micro_memory.position - 0 - 1 % micro_memory.capacity]
+                            )
+
+    # Optimisation
+    train_target = False
+    # Micro
+    micro_loss = optimize_model(
+            optimizer, micro_memory, model, BATCH_SIZE, GAMMA, target=target,
+            train_target=train_target, test=True, freeze_macro=True)
+    micro_loss = 0 if micro_loss is None else micro_loss.data[0]
+
+    # Macro
+    macro_loss = optimize_model(
+            optimizer, macro_memory, model, BATCH_SIZE, GAMMA, target=target,
+            train_target=train_target, test=True, freeze_micro=True)
+    macro_loss = 0 if macro_loss is None else macro_loss.data[0]
+
+    # Full
+    train_target = True if j % 5 == 0 else False
+    full_loss = optimize_model(optimizer, full_memory, model, BATCH_SIZE, GAMMA,
+    target=target, train_target=train_target)
+    full_loss = 0 if full_loss is None else full_loss.data[0]
+
+    #loss = 0 if loss is None else loss.data[0]
+    #net_loss += loss
+
+
+    # Viz
+    losses_dataset.resize((j+1,))
+    losses_dataset[j] = net_loss
+    losses_dataset.flush()
+
+    overall_reward_dataset.resize((j+1,))
+    overall_reward_dataset[j] = net_reward
+    quota_err_dataset.resize((j+1,))
+    quota_err_dataset[j] = 1-env.q_so_far
+    overall_reward_dataset.flush()
+    quota_err_dataset.flush()
+
+    print('done - day: {} step: {} net_loss: {}'.format(j, t, net_loss))
 
 
 print('complete')
