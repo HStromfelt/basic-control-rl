@@ -15,21 +15,22 @@ def optimize_model(optimizer, memory, model, BATCH_SIZE, GAMMA, target=None, tra
         return
 
     # random idea
-    for i, param in enumerate(model.parameters()):
-        if test and i == 2:
-            if freeze_micro:
-                param.requires_grad = False
-            elif freeze_macro:
-                param.requires_grad = True
-            else:
-                param.requires_grad = True
-        if test and i == 3:
-            if freeze_micro:
-                param.requires_grad = True
-            elif freeze_macro:
-                param.requires_grad = False
-            else:
-                param.requires_grad = True
+    if test:
+        for i, param in enumerate(model.parameters()):
+            if i == 2:
+                if freeze_micro:
+                    param.requires_grad = False
+                elif freeze_macro:
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = True
+            if i == 3:
+                if freeze_micro:
+                    param.requires_grad = True
+                elif freeze_macro:
+                    param.requires_grad = False
+                else:
+                    param.requires_grad = True
 
 
     transitions = memory.sample(BATCH_SIZE)

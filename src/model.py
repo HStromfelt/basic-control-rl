@@ -8,8 +8,10 @@ from torch.autograd import Variable
 class vanilla_Linear_Net(nn.Module):
     def __init__(self, num_inputs, num_outputs):
         super(vanilla_Linear_Net, self).__init__()
-        self.fc1 = nn.Linear(num_inputs - 1, 64)
-        self.fc1_q = nn.Linear(1, 32)
+        #self.fc1 = nn.Linear(num_inputs - 1, 64)
+        self.fc1 = nn.Linear(num_inputs - 2, 64)
+        #self.fc1_q = nn.Linear(1, 32)
+        self.fc1_q = nn.Linear(2, 32)
 
         self.fc2_micro = nn.Linear(96, 64)
         self.fc2_macro = nn.Linear(96, 64)
@@ -22,8 +24,8 @@ class vanilla_Linear_Net(nn.Module):
 
     def forward(self, x, debug=False):
         # forward model
-        x_a = F.hardtanh(self.fc1(x[:,:-1]))
-        x_b = F.hardtanh(self.fc1_q(x[:,-1:]))
+        x_a = F.hardtanh(self.fc1(x[:,:-2]))
+        x_b = F.hardtanh(self.fc1_q(x[:,-2:]))
         x = torch.cat((x_a, x_b), 1)
 
         x_micro = F.hardtanh(self.fc2_micro(x))
@@ -50,7 +52,7 @@ class Linear_Net(nn.Module):
         super(Linear_Net, self).__init__()
         self.fc1_time = nn.Linear(32, 128)
         self.fc1_system = nn.Linear(20, 128)
-        self.fc1_q = nn.Linear(1, 32)
+        self.fc1_q = nn.Linear(2, 32)
 
         self.fc2_groups = nn.Linear(num_inputs, num_inputs)
 
@@ -71,10 +73,10 @@ class Linear_Net(nn.Module):
         x_time = F.relu(self.fc1_time(x[:, :32]))
         x_time = F.relu(self.fc2_time(x_time))
 
-        x_system = F.relu(self.fc1_system(x[:, 32:-1]))
+        x_system = F.relu(self.fc1_system(x[:, 32:-2]))
         x_system = F.relu(self.fc2_system(x_system))
 
-        x_q = F.relu(self.fc1_1(x[:, -1:]))
+        x_q = F.relu(self.fc1_q(x[:, -2:]))
 
         x_grouped = F.relu(self.fc2_groups(x))
 

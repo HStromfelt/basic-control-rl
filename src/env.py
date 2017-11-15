@@ -30,13 +30,14 @@ class Env(object):
         self.day_quota = 160
         self.total_time = 2 * 16
         self.speed_maintain_reward = 0.2
-        self.speed_switch_multiplier = 10
+        self.speed_switch_multiplier = 50
         self.quota_err_multiplier = 100 # 100
+        self.zero_speed_multiplier = 100
 
         # Details
         self.is_peak = False
-        self.peak_time_rate = 9 #0.8
-        self.offpeak_time_rate = 1  #0.2
+        self.peak_time_rate = 100 #0.8
+        self.offpeak_time_rate = 0  #0.2
         self.peak_time_start = self.total_time/24 * 4
         self.peak_time_end = self.total_time/24 * 10
 
@@ -57,7 +58,7 @@ class Env(object):
                 0.,  # q_so_far
                 #0.,  # speed
                 #0.,  # diff q_so_far
-                #0.  # old_speed
+                0.  # old_speed
                 ])
         else:
             time_one_hot = torch.Tensor([
@@ -70,7 +71,7 @@ class Env(object):
                 self.q_so_far,  # q_so_far
                 #0.,  # speed
                 #0.,  # diff q_so_far
-                #0.  # old_speed
+                self.speed#0.  # old_speed
                 ])
 
         tensor_state =  torch.cat([
@@ -148,7 +149,7 @@ class Env(object):
         energy_cost_penalty = 0
 
         if self.speed == 0:
-            energy_cost_penalty -= 1
+            energy_cost_penalty -= 1*self.zero_speed_multiplier
         elif self.peak_time_start <= self.time*self.total_time <= self.peak_time_end:
             # inside peak time example
             #return -state['speed'], True

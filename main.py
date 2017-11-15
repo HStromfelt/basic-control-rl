@@ -14,6 +14,7 @@ from src.model import Linear_Net, vanilla_Linear_Net
 from src.optimise import *
 from src.exploration import Explorer
 from src.data_manager import DataManager
+from src.admin import *
 
 import torch
 import torch.nn as nn
@@ -37,10 +38,12 @@ Tensor = FloatTensor
 #################################################
 ## Hyperparams
 BATCH_SIZE = 32 * 300
-GAMMA = 0.8
+GAMMA = 0.7
 EPS_START = 0.9
 EPS_END = 0.
-EPS_DECAY = 2000
+#EPS_DECAY = 3000
+EPS_DECAY = 1e5  # for linear decay 0 at
+decay_type = 'linear_decay'
 explorer = Explorer(EPS_START, EPS_END, EPS_DECAY)
 
 NUM_ATTEMPTS = 120000
@@ -51,16 +54,16 @@ NUM_TIME_STEPS = 2 * 16  # 30 mins 16 hour shift
 ACTION_SPACE = 21  # 5% speed intervals + 1 maintain speed action
 #STATE_SPACE = 148  # Time one hot + 4 system variables
 #STATE_SPACE = NUM_TIME_STEPS + 4
-STATE_SPACE = NUM_TIME_STEPS + 20 + 1  # time and speed as one hot and q_so_far
+STATE_SPACE = NUM_TIME_STEPS + 20 + 2  # time and speed as one hot and q_so_far and old speed
 
 env = Env(STATE_SPACE, ACTION_SPACE)
 
 #model = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
-model = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
-target = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
+#model = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
+#target = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
 #target = None
-#model = Linear_Net(STATE_SPACE, ACTION_SPACE)
-#target = Linear_Net(STATE_SPACE, ACTION_SPACE)
+model = Linear_Net(STATE_SPACE, ACTION_SPACE)
+target = Linear_Net(STATE_SPACE, ACTION_SPACE)
 
 
 if use_cuda:
@@ -72,7 +75,7 @@ if use_cuda:
 optimizer = optim.SGD(model.parameters(), lr=0.1)
 full_memory = ReplayMemory(BATCH_SIZE * 100)
 micro_memory = ReplayMemory(BATCH_SIZE * 100)
-macro_memory = ReplayMemory(BATCH_SIZE* 100)
+#macro_memory = ReplayMemory(BATCH_SIZE* 100)
 ##################################################
 # Data Storer/Manager
 dm = DataManager('./data.h5', mode='swmr')
@@ -100,7 +103,11 @@ for j in range(NUM_ATTEMPTS):
     for t in range(NUM_TIME_STEPS):
         # Select and perform an action
         action = select_action(
-                model, state, ACTION_SPACE, explorer.calc_eps_threshold(j))
+                model,
+                state,
+                ACTION_SPACE,
+                explorer.calc_eps_threshold(j, 'linear_decay')
+            )#'exp_cutoff_100k'))
         reward = env.step_test(action[0, 0])
         reward = Tensor([reward])
         net_reward += reward[0]
@@ -111,12 +118,15 @@ for j in range(NUM_ATTEMPTS):
         # Full memory, stores full context of rewards
         full_memory.push(state, action, next_state, reward)
         # micro memory, stores only the state by state deterministic rewards
-        micro_memory.push(state, action, next_state, reward)
+        #micro_memory.push(state, action, next_state, reward)
         # macro memory, only stores the final state and backprop reward
         if t == (NUM_TIME_STEPS - 1):  # i.e. final reward
-            macro_memory.push(state, action, next_state, reward)
+            micro_reward = reward - env.quota_err_multiplier*(np.exp(-5 * np.abs(1-env.q_so_far)))
+            micro_memory.push(state, action, next_state, micro_reward)
+        #    macro_memory.push(state, action, next_state, reward)
         else:
-            macro_memory.push(state, action, next_state, Tensor([0.]))
+            micro_memory.push(state, action, next_state, reward)
+        #    macro_memory.push(state, action, next_state, Tensor([0.]))
 
 
         # Move to the next state
@@ -163,6 +173,8 @@ for j in range(NUM_ATTEMPTS):
         final_reward = reward[0]
         for i in range(NUM_TIME_STEPS):
             # Full memory
+            #pass
+            #"""
             transition = full_memory.memory[full_memory.position - i - 1 % full_memory.capacity]
             full_memory.memory[full_memory.position - i - 1 % full_memory.capacity] = list(transition)
             full_memory.memory[full_memory.position - i - 1 % full_memory.capacity][3] += \
@@ -171,8 +183,10 @@ for j in range(NUM_ATTEMPTS):
                     ReplayMemory.Transition(
                             *full_memory.memory[full_memory.position - i - 1 % full_memory.capacity]
                             )
+            #"""
 
             # Macro memory
+            """
             transition = macro_memory.memory[macro_memory.position - i - 1 % macro_memory.capacity]
             macro_memory.memory[macro_memory.position - i - 1 % macro_memory.capacity] = list(transition)
             macro_memory.memory[macro_memory.position - i - 1 % macro_memory.capacity][3] += \
@@ -201,16 +215,24 @@ for j in range(NUM_ATTEMPTS):
     micro_loss = 0 if micro_loss is None else micro_loss.data[0]
 
     # Macro
+    train_target = True #if j % 5 == 0 else False
     macro_loss = optimize_model(
             optimizer, macro_memory, model, BATCH_SIZE, GAMMA, target=target,
             train_target=train_target, test=True, freeze_micro=True)
     macro_loss = 0 if macro_loss is None else macro_loss.data[0]
-
+    """
     # Full
     train_target = True if j % 5 == 0 else False
     full_loss = optimize_model(optimizer, full_memory, model, BATCH_SIZE, GAMMA,
     target=target, train_target=train_target)
     full_loss = 0 if full_loss is None else full_loss.data[0]
+    """
+    micro_loss = optimize_model(optimizer, micro_memory, model, BATCH_SIZE, GAMMA,
+    target=target, train_target=train_target)
+    micro_loss = 0 if micro_loss is None else micro_loss.data[0]
+    """
+
+    net_loss += full_loss #+ micro_loss
 
     #loss = 0 if loss is None else loss.data[0]
     #net_loss += loss
@@ -228,7 +250,27 @@ for j in range(NUM_ATTEMPTS):
     overall_reward_dataset.flush()
     quota_err_dataset.flush()
 
+    # Admin checkpoint model every 1000 epochs
+    if j % 1000 == 0:
+        filename = 'checkpoint_epoch{}'.format(j)
+        params = dict(
+                dqn=model.state_dict(),
+                target=target.state_dict(),
+                optimizer=optimizer.state_dict(),
+                epoch=j,
+                step=NUM_TIME_STEPS-1
+                )
+        save_checkpoint(params, filename=filename)
+
+
     print('done - day: {} step: {} net_loss: {}'.format(j, t, net_loss))
+
+    if j = NUM_ATTEMPTS - 1:
+        keep_sim = input('Simulate for another {} steps? Y/N'.format(NUM_ATTEMPTS))
+        if keep_sim.upper() == 'Y':
+            NUM_ATTEMPTS += NUM_ATTEMPTS
+        else:
+            print('Okay goodbye')
 
 
 print('complete')
