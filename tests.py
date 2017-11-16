@@ -6,10 +6,11 @@ mode = 'vanilla'
 #sub_mode = 'prioritised_replay'
 sub_mode = None
 
-from .admin import *
-from .env import Env
-from .action_select import *
-from .data_manager import DataManager
+from src.admin import *
+from src.env import Env
+from src.action_select import *
+from src.data_manager import DataManager
+from src.model import vanilla_Linear_Net
 
 import torch
 import torch.nn as nn
@@ -19,6 +20,7 @@ from torch.autograd import Variable
 
 import random
 import numpy as np
+import os
 
 if torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -32,7 +34,7 @@ ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
 Tensor = FloatTensor
 
 def get_checkpoints(basepath='checkpoints/', filename=None):
-    dirname = os.dirname(basepath)
+    dirname = os.path.dirname(basepath)
     if filename == None:
         return (f for f in os.listdir(dirname))
     else:
@@ -64,7 +66,10 @@ env = Env(STATE_SPACE, ACTION_SPACE)
 # Test
 def test(model, run_name):
     # Data Storer/Manager
-    dm = DataManager('../tests/{}.h5'.format(run_name), mode='swmr')
+    if not os.path.exists('./tests/'):
+        os.makedirs('./tests/')
+    path = './tests/{}.h5'.format(run_name)
+    dm = DataManager('./tests/{}.h5'.format(run_name), mode='swmr')
     datasets = dm.datasets
     rewards_dataset = datasets['rewards']
     speeds_dataset = datasets['speeds']
@@ -124,16 +129,17 @@ def test(model, run_name):
         speeds_dataset.flush()
         quota_dataset.flush()
 
-    overall_reward_dataset.resize((j+1,))
-    overall_reward_dataset[j] = net_reward
-    quota_err_dataset.resize((j+1,))
-    quota_err_dataset[j] = 1-env.q_so_far
+    overall_reward_dataset.resize((1,))
+    overall_reward_dataset[0] = net_reward
+    quota_err_dataset.resize((1,))
+    quota_err_dataset[0] = 1-env.q_so_far
     overall_reward_dataset.flush()
     quota_err_dataset.flush()
 
 
-    print('done - day: {} step: {} net_loss: {}'.format(j, t, net_loss))
+    print('done - day: {}'.format(1))
     print('complete')
+    return path
 
 
 
@@ -142,12 +148,23 @@ def test(model, run_name):
 if __name__ == '__main__':
     checkpoints = get_checkpoints()
     model = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
+    test_paths = []
+    epochs = []
     for checkpoint in checkpoints:
-        params = load_state_dict(checkpoint)
-        run = params['epoch']
+        params = load_checkpoint(filename=checkpoint)
+        run = 'model_epoch_{}'.format(params['epoch'])
         model.load_state_dict(params['dqn'])
 
-        test(model, run)
+        test_paths.append(test(model, run))
+        epochs.append(params['epoch'])
 
     print('done testing')
+
+    print('visualising')
+    from src.test_visualise import *
+
+    for i, path in enumerate(test_paths):
+        visualise_test(path, epochs[i])
+
+    print('Visualisations complete')
 

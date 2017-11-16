@@ -4,11 +4,11 @@ import os
 import torch
 
 
-def save_checkpoint(self, params, basepath='checkpoints/', filename='checkpoint.pth.tar'):
+def save_checkpoint(params, basepath='checkpoints/', filename='checkpoint.pth.tar'):
     dirpath = basepath
 
     if not os.path.exists(dirpath):
-        os.mkdir(dirpath)
+        os.makedirs(dirpath)
 
     filepath = os.path.join(dirpath, filename)
 
@@ -16,14 +16,14 @@ def save_checkpoint(self, params, basepath='checkpoints/', filename='checkpoint.
             'dqn': params['dqn_state_dict'],
             'target': params['target_state_dict'],
             'optimizer': params['optimizer_state_dict'],
-            'epoch': params['epoch']
+            'epoch': params['epoch'],
             'step': params['step'],
             }
     torch.save(checkpoint, filepath)
 
 
 
-def load_checkpoint(self, basepath='checkpoints/' filename='checkpoint.pth.tar', epsilon=None):
+def load_checkpoint(basepath='checkpoints/', filename='checkpoint.pth.tar', epsilon=None):
     filepath = os.path.join(basepath, filename)
     checkpoint = torch.load(filepath)
     data = {

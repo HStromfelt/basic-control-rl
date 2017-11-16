@@ -37,20 +37,22 @@ ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
 Tensor = FloatTensor
 #################################################
 ## Hyperparams
-BATCH_SIZE = 32 * 300
+BATCH_SIZE = 10 * 300
 GAMMA = 0.7
 EPS_START = 0.9
 EPS_END = 0.
 #EPS_DECAY = 3000
-EPS_DECAY = 1e5  # for linear decay 0 at
+EPS_DECAY = 150000 # for radnom action threshold 0 at value
 decay_type = 'linear_decay'
 explorer = Explorer(EPS_START, EPS_END, EPS_DECAY)
 
-NUM_ATTEMPTS = 120000
+NUM_ATTEMPTS = 150000
 ##################################################
 # Model and Environment
 #NUM_TIME_STEPS = 6 * 24  # 10 min intervals in a day
-NUM_TIME_STEPS = 2 * 16  # 30 mins 16 hour shift
+NUM_TIME_STEPS = 4 * 2.5  # 4 @ 15 minutes in 2.5 hrs
+assert NUM_TIME_STEPS % 1 == 0
+NUM_TIME_STEPS = int(NUM_TIME_STEPS)
 ACTION_SPACE = 21  # 5% speed intervals + 1 maintain speed action
 #STATE_SPACE = 148  # Time one hot + 4 system variables
 #STATE_SPACE = NUM_TIME_STEPS + 4
@@ -59,11 +61,11 @@ STATE_SPACE = NUM_TIME_STEPS + 20 + 2  # time and speed as one hot and q_so_far 
 env = Env(STATE_SPACE, ACTION_SPACE)
 
 #model = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
-#model = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
-#target = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
+model = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
+target = vanilla_Linear_Net(STATE_SPACE, ACTION_SPACE)
 #target = None
-model = Linear_Net(STATE_SPACE, ACTION_SPACE)
-target = Linear_Net(STATE_SPACE, ACTION_SPACE)
+#model = Linear_Net(STATE_SPACE, ACTION_SPACE)
+#target = Linear_Net(STATE_SPACE, ACTION_SPACE)
 
 
 if use_cuda:
@@ -106,7 +108,7 @@ for j in range(NUM_ATTEMPTS):
                 model,
                 state,
                 ACTION_SPACE,
-                explorer.calc_eps_threshold(j, 'linear_decay')
+                explorer.calc_eps_threshold(j, decay_type)
             )#'exp_cutoff_100k'))
         reward = env.step_test(action[0, 0])
         reward = Tensor([reward])
@@ -254,9 +256,9 @@ for j in range(NUM_ATTEMPTS):
     if j % 1000 == 0:
         filename = 'checkpoint_epoch{}'.format(j)
         params = dict(
-                dqn=model.state_dict(),
-                target=target.state_dict(),
-                optimizer=optimizer.state_dict(),
+                dqn_state_dict=model.state_dict(),
+                target_state_dict=target.state_dict(),
+                optimizer_state_dict=optimizer.state_dict(),
                 epoch=j,
                 step=NUM_TIME_STEPS-1
                 )
@@ -265,7 +267,7 @@ for j in range(NUM_ATTEMPTS):
 
     print('done - day: {} step: {} net_loss: {}'.format(j, t, net_loss))
 
-    if j = NUM_ATTEMPTS - 1:
+    if j == NUM_ATTEMPTS - 1:
         keep_sim = input('Simulate for another {} steps? Y/N'.format(NUM_ATTEMPTS))
         if keep_sim.upper() == 'Y':
             NUM_ATTEMPTS += NUM_ATTEMPTS

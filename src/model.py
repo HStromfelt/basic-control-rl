@@ -50,7 +50,8 @@ class vanilla_Linear_Net(nn.Module):
 class Linear_Net(nn.Module):
     def __init__(self, num_inputs, num_outputs):
         super(Linear_Net, self).__init__()
-        self.fc1_time = nn.Linear(32, 128)
+        #self.fc1_time = nn.Linear(32, 128)
+        self.fc1_time = nn.Linear(10, 128)
         self.fc1_system = nn.Linear(20, 128)
         self.fc1_q = nn.Linear(2, 32)
 
@@ -70,10 +71,12 @@ class Linear_Net(nn.Module):
 
     def forward(self, x, debug=False):
         # forward model
-        x_time = F.relu(self.fc1_time(x[:, :32]))
+        #x_time = F.relu(self.fc1_time(x[:, :32]))
+        x_time = F.relu(self.fc1_time(x[:, :10]))
         x_time = F.relu(self.fc2_time(x_time))
 
-        x_system = F.relu(self.fc1_system(x[:, 32:-2]))
+        #x_system = F.relu(self.fc1_system(x[:, 32:-2]))
+        x_system = F.relu(self.fc1_system(x[:, 10:-2]))
         x_system = F.relu(self.fc2_system(x_system))
 
         x_q = F.relu(self.fc1_q(x[:, -2:]))

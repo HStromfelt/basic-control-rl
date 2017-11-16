@@ -26,9 +26,11 @@ class Env(object):
         # Constraints
         self.acc = 0.1
         self.deacc = 0.1
-        self.max_speed = 10
-        self.day_quota = 160
-        self.total_time = 2 * 16
+        self.max_speed = 15  # 15 cycles per interval. 10 intervals = 150 total
+        self.day_quota = 75  # ask to do half daily capacity
+        self.total_time = 4 * 2.5  # 4 intervals per hour for 2.5 hours = 15 min intervals
+        assert self.total_time % 1 == 0
+        self.total_time = int(self.total_time)
         self.speed_maintain_reward = 0.2
         self.speed_switch_multiplier = 50
         self.quota_err_multiplier = 100 # 100
@@ -38,8 +40,8 @@ class Env(object):
         self.is_peak = False
         self.peak_time_rate = 100 #0.8
         self.offpeak_time_rate = 0  #0.2
-        self.peak_time_start = self.total_time/24 * 4
-        self.peak_time_end = self.total_time/24 * 10
+        self.peak_time_start = 4#self.total_time/24 * 4  # read 1 indexed
+        self.peak_time_end = 7 #self.total_time/24 * 10  # included
 
     def reset(self):
         self.time = 0.
